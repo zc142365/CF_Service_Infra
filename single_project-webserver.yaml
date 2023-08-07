@@ -1,0 +1,425 @@
+# Parameters:
+#   KeyName:
+#     Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+#     Type: AWS::EC2::KeyPair::KeyName
+#     ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+Resources:
+# VPC 생성
+  SeoulVPC1: 
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: Seoul-VPC1
+  
+  SeoulInternetGW1:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Seoul-Internet-GW1
+
+  SeoulGWAttachment1:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref SeoulInternetGW1
+      VpcId: !Ref SeoulVPC1
+
+  SeoulRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SeoulVPC1
+      Tags:
+        - Key: Name
+          Value: Seoul-RouteTable1
+
+  SeoulRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: SeoulGWAttachment1
+    Properties:
+      RouteTableId: !Ref SeoulRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref SeoulInternetGW1
+   
+  SeoulPubSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SeoulVPC1
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.1.1.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-Public-Subnet1
+
+  SeoulSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SeoulRouteTable1
+      SubnetId: !Ref SeoulPubSubnet1
+
+  SeoulSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable port 80, 22, 443, 161, icmp
+      VpcId: !Ref SeoulVPC1
+      Tags:
+        - Key: Name
+          Value: Seoul-SecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: udp
+          FromPort: '161'
+          ToPort: '161'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '443'
+          ToPort: '443'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  SeoulNATInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-0e3e1b45a02a17920
+      KeyName: "aws-amazon-linux-rsa"
+      Tags:
+        - Key: Name
+          Value: Seoul-NAT-Instance1
+      SourceDestCheck: false
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref SeoulNATInstance1ENIEth0
+          DeviceIndex: 0
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostname Seoul-NAT-Instance1
+            yum -y isntall tcpdump iptraf
+
+  SeoulNATInstance1ENIEth0:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref SeoulPubSubnet1
+      Description: SeoulInstance1 eth0
+      GroupSet:
+        - !Ref SeoulSecurityGroup
+      PrivateIpAddress: 10.1.1.200
+      Tags:
+        - Key: Name
+          Value: Seoul-NAT-Instance-Eth0
+      
+  SeoulVPCEIP1:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  SeoulVPCAssociateEIP1:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt SeoulVPCEIP1.AllocationId
+      NetworkInterfaceId: !Ref SeoulNATInstance1ENIEth0
+
+# 여기까지가 VPC와 NAT인스턴스 1개 셋팅
+  SeoulPubSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SeoulVPC1
+      AvailabilityZone: !Select [ 2, !GetAZs '' ]
+      CidrBlock: 10.1.2.0/24
+      Tags:
+        - Key: Names
+          Value: Seoul-Public-Subnet2
+
+  SeoulNATInstance2ENIEth0:
+    Type: AWS::EC2::NetworkInterface
+    Properties:
+      SubnetId: !Ref SeoulPubSubnet2
+      Description: SeoulInstance2 eth0
+      GroupSet:
+        - !Ref SeoulSecurityGroup
+      PrivateIpAddress: 10.1.2.200
+      Tags:
+        - Key: Name
+          Value: Seoul-NAT-Instance-Eth0
+        
+  SeoulNATInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-0e3e1b45a02a17920
+      KeyName: "aws-amazon-linux-rsa"
+      SourceDestCheck: false
+      Tags:
+        - Key: Name
+          Value: Seoul-NAT-Instance2
+      NetworkInterfaces:
+        - NetworkInterfaceId: !Ref SeoulNATInstance2ENIEth0
+          DeviceIndex: 0
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostname Seoul-NAT-Instance2
+            yum -y isntall tcpdump iptraf
+
+  SeoulSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref SeoulRouteTable1
+      SubnetId: !Ref SeoulPubSubnet2
+
+  SeoulVPCEIP2:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  SeoulVPCAssociateEIP2:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt SeoulVPCEIP2.AllocationId
+      NetworkInterfaceId: !Ref SeoulNATInstance2ENIEth0
+    
+  # 여기까지가 NAT Instance2개 세팅
+
+  NATIns1Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref NATIns1RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NetworkInterfaceId: !Ref SeoulNATInstance1ENIEth0
+
+  NATIns1RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SeoulVPC1
+      Tags:
+        - Key: Name
+          Value: NAT-Instance1-RouteTable
+      
+  NatIns2Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref NATIns2RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NetworkInterfaceId: !Ref SeoulNATInstance2ENIEth0
+
+  NATIns2RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref SeoulVPC1
+      Tags:
+        - Key: Name
+          Value: NAT-Instance2-RouteTable
+    
+  SeoulPriSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SeoulVPC1
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.1.3.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-Private-Subnet1
+  
+  SeoulPriSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref SeoulVPC1
+      AvailabilityZone: !Select [ 2, !GetAZs '' ]
+      CidrBlock: 10.1.4.0/24
+      Tags:
+        - Key: Name
+          Value: Seoul-Private-Subnet2
+
+  WebServerInstance1:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-073858dcf4e30e586
+      KeyName: "aws-amazon-linux-rsa"
+      Tags:
+        - Key: Name
+          Value: Seoul-Web-Instance1
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SeoulPriSubnet1
+          GroupSet:
+            - !Ref SeoulSecurityGroup
+          PrivateIpAddress: 10.1.3.100
+          # AssociatePublicIpAddress: true
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            (
+            echo "qwe123"
+            echo "qwe123"
+            ) | passwd --stdin root
+            sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+            sed -i "s/^#PermitRootLogin yes/PermitRootLogin yes/g" /etc/ssh/sshd_config
+            service sshd restart
+            hostnamectl --static set-hostname Seoul-AWS-WebSrv1
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum install -y httpd lynx
+            systemctl start httpd && systemctl enable httpd
+            mkdir /var/www/inc
+            curl -o /var/www/inc/dbinfo.inc https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/dbinfo.inc
+            curl -o /var/www/html/db.php https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/db.php
+            rm -rf /var/www/html/index.html
+            echo "<h1>CloudNet@ FullLab - SeoulRegion - Websrv1</h1>" > /var/www/html/index.html
+            curl -o /opt/pingcheck.sh https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/pingchecker.sh
+            chmod +x /opt/pingcheck.sh
+            cat <<EOT>> /etc/crontab
+            */3 * * * * root /opt/pingcheck.sh
+            EOT
+            echo "1" > /var/www/html/HealthCheck.txt
+
+  WebServerInstance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-073858dcf4e30e586
+      KeyName: "aws-amazon-linux-rsa"
+      Tags:
+        - Key: Name
+          Value: Seoul-Web-Instance2
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref SeoulPriSubnet2
+          GroupSet:
+            - !Ref SeoulSecurityGroup
+          # AssociatePublicIpAddress: true
+          PrivateIpAddress: 10.1.4.100
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            (
+            echo "qwe123"
+            echo "qwe123"
+            ) | passwd --stdin root
+            sed -i "s/^PasswordAuthentication no/PasswordAuthentication yes/g" /etc/ssh/sshd_config
+            sed -i "s/^#PermitRootLogin yes/PermitRootLogin yes/g" /etc/ssh/sshd_config
+            service sshd restart
+            hostnamectl --static set-hostname Seoul-AWS-WebSrv1
+            amazon-linux-extras install -y lamp-mariadb10.2-php7.2 php7.2
+            yum install -y httpd lynx
+            systemctl start httpd && systemctl enable httpd
+            mkdir /var/www/inc
+            curl -o /var/www/inc/dbinfo.inc https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/dbinfo.inc
+            curl -o /var/www/html/db.php https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/db.php
+            rm -rf /var/www/html/index.html
+            echo "<h1>CloudNet@ FullLab - SeoulRegion - Websrv1</h1>" > /var/www/html/index.html
+            curl -o /opt/pingcheck.sh https://cloudneta-book.s3.ap-northeast-2.amazonaws.com/chapter8/pingchecker.sh
+            chmod +x /opt/pingcheck.sh
+            cat <<EOT>> /etc/crontab
+            */3 * * * * root /opt/pingcheck.sh
+            EOT
+            echo "1" > /var/www/html/HealthCheck.txt
+            
+            
+  # 두개의 웹서버 까지 완료
+  SeoulALB1:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: Seoul-ALB1
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref SeoulSecurityGroup
+      Subnets:
+        - !Ref SeoulPubSubnet1
+        - !Ref SeoulPubSubnet2
+      Tags:
+        - Key: Name
+          Value: Seoul-ALB1
+
+  SeoulALBListener1:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref SeoulALBTargetGroup1
+      LoadBalancerArn: !Ref SeoulALB1
+      Port: 80
+      Protocol: HTTP
+
+  SeoulALBTargetGroup1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: Seoul-ALB-TG
+      Port: 80
+      Protocol: HTTP
+      HealthCheckPort: 80
+      VpcId: !Ref SeoulVPC1
+      Targets:
+        - Id: !Ref WebServerInstance1
+          Port: 80
+
+        - Id: !Ref WebServerInstance2
+          Port: 80
+
+  # NATInstanceRoutable + PriSubnet + Web-Instance
+  SeoulPriSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref NATIns1RouteTable
+      SubnetId: !Ref SeoulPriSubnet1
+  
+  SeoulPriSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref NATIns2RouteTable
+      SubnetId: !Ref SeoulPriSubnet2
+
+  # DNS
+  SeoulPrivateDNS1:
+    Type: AWS::Route53::HostedZone
+    DependsOn: SeoulVPC1
+    Properties:
+      HostedZoneConfig:
+        Comment: Private hosted zone for awsneta.net
+      Name: aws-seoul.internal
+      #Private 호스팅 영역 생성시 필요 옵션
+      VPCs:
+        - VPCId: !Ref SeoulVPC1
+          VPCRegion: ap-northeast-2
+      HostedZoneTags:
+        - Key: Name
+          Value: aws-seoul-domain
+
+  SeoulDNSRecordWebServer1:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref SeoulPrivateDNS1
+      Comment: DNS name for AWS WEBSRV1 instance.
+      Name: websrv1.aws-seoul.internal
+      Type: A
+      TTL: 60
+      ResourceRecords:
+        - !GetAtt WebServerInstance1.PrivateIp
+
+  SeoulDNSRecordWebServer2:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref SeoulPrivateDNS1
+      Comment: DNS name for AWS WEBSRV2 instance.
+      Name: websrv2.aws-seoul.internal
+      Type: A
+      TTL: 60
+      ResourceRecords:
+        - !GetAtt WebServerInstance2.PrivateIp
