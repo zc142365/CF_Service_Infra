@@ -1,4 +1,15 @@
 # CF_Service_Infra
 Cloud Formation Service Infra
-## Project Infra
-![image](https://github.com/zc142365/CF_Service_Infra/assets/50620917/08d963da-98d1-4bf4-b814-67c1a844c1c4)
+
+## 프로젝트 소개
+이 프로젝트는 AWS CloudFormation을 활용하여 코드 베이스의 Private Cloud Infra를 구축하기 위한 것입니다.
+
+## 환경
+  - Cloud : AWS
+  - Tools : ShellScript, AWS CloudFormation, VSCode
+
+## 기능
+Cloud Infra 자동화
+
+## 사용방법
+AWS에 CloudFormation에 배포해야 합니다
